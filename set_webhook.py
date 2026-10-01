@@ -22,7 +22,7 @@ async def main():
         sys.exit(1)
 
     base_url = sys.argv[1].rstrip("/")
-    webhook_url = f"{base_url}/api/webhook"
+    webhook_url = f"{base_url}/api"
     token = os.getenv("BOT_TOKEN")
 
     if not token:
