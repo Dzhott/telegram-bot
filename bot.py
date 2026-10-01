@@ -1,46 +1,53 @@
 import asyncio
 import logging
 import os
+import sys
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ChatAction
 from aiogram.filters import CommandStart
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types as genai_types
 
-from prompts import SYSTEM_PROMPT
+# Ensure project root is importable when running from api/
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Load .env for local development (no-op if file is absent)
-load_dotenv()
+from prompts import SYSTEM_PROMPT
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_KEY = os.getenv("GEMINI_KEY")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+GEMINI_KEY = os.getenv("GEMINI_KEY", "")
 
-if not BOT_TOKEN:
-    raise RuntimeError(
-        "BOT_TOKEN is not set. "
-        "Add it to .env (local) or Vercel Environment Variables (production)."
-    )
-if not GEMINI_KEY:
-    raise RuntimeError(
-        "GEMINI_KEY is not set. "
-        "Add it to .env (local) or Vercel Environment Variables (production)."
-    )
-
-bot = Bot(token=BOT_TOKEN)
+# Lazy init — don't crash at import if env vars are missing (Vercel build phase)
+bot: Bot | None = None
 dp = Dispatcher()
-gemini_client = genai.Client(api_key=GEMINI_KEY)
+gemini_client = None
 
 PRIMARY_MODEL = "gemini-flash-latest"
 FALLBACK_MODEL = "gemini-3.5-flash"
 
 
+def _ensure_init():
+    """Initialize bot and Gemini client on first request."""
+    global bot, gemini_client
+    if bot is None:
+        token = os.getenv("BOT_TOKEN", "")
+        if not token:
+            raise RuntimeError("BOT_TOKEN is not set")
+        bot = Bot(token=token)
+    if gemini_client is None:
+        key = os.getenv("GEMINI_KEY", "")
+        if not key:
+            raise RuntimeError("GEMINI_KEY is not set")
+        gemini_client = genai.Client(api_key=key)
+
+
 async def ask_gemini(user_text: str) -> str:
     """Send a request to Gemini. Retry with fallback model on 503."""
+    _ensure_init()
     models_to_try = [PRIMARY_MODEL, FALLBACK_MODEL]
 
     for model_name in models_to_try:
@@ -76,6 +83,7 @@ async def handle_message(message: types.Message) -> None:
     if not message.text:
         return
 
+    _ensure_init()
     await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     try:
@@ -84,13 +92,16 @@ async def handle_message(message: types.Message) -> None:
         log.exception("Gemini request failed")
         answer = "Произошла ошибка при обращении к модели. Попробуй позже."
 
-    # Telegram limits messages to 4096 chars
     for i in range(0, len(answer), 4096):
         await message.answer(answer[i : i + 4096])
 
 
 # --- Local development: long polling ---
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    _ensure_init()
 
     async def main() -> None:
         log.info("Bot starting (long polling)…")
