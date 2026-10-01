@@ -23,7 +23,6 @@ log = logging.getLogger(__name__)
 PRIMARY_MODEL = "gemini-flash-latest"
 FALLBACK_MODEL = "gemini-3.5-flash"
 
-# --- Lazy globals (initialized on first request) ---
 _bot: Bot | None = None
 _dp: Dispatcher | None = None
 _gemini = None
